@@ -1,0 +1,113 @@
+name: codeatlas
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-codeatlas}
+      POSTGRES_USER: ${POSTGRES_USER:-codeatlas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codeatlas} -d ${POSTGRES_DB:-codeatlas}"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    restart: unless-stopped
+    networks: [backend]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    restart: unless-stopped
+    networks: [backend]
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      PORT: 8080
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-codeatlas}
+      POSTGRES_USER: ${POSTGRES_USER:-codeatlas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
+      REPOSITORY_STORAGE: /data/repositories
+      MAX_REPOSITORY_FILES: ${MAX_REPOSITORY_FILES:-3000}
+      MAX_FILE_BYTES: ${MAX_FILE_BYTES:-524288}
+    volumes:
+      - repository_data:/data/repositories
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 25s
+    restart: unless-stopped
+    networks: [backend, edge]
+    deploy:
+      resources:
+        limits:
+          memory: 900M
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_BASE_PATH: /codeatlas/
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 10s
+      timeout: 4s
+      retries: 10
+    restart: unless-stopped
+    networks: [edge]
+
+  gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:${APP_PORT:-18081}:80"
+    volumes:
+      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/codeatlas/actuator/health/readiness"]
+      interval: 10s
+      timeout: 4s
+      retries: 10
+    restart: unless-stopped
+    networks: [edge]
+
+volumes:
+  postgres_data:
+  redis_data:
+  repository_data:
+
+networks:
+  edge:
+  backend:
+    internal: true
+

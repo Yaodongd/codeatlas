@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: codeatlas
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/codeatlas}
+    username: ${POSTGRES_USER:codeatlas}
+    password: ${POSTGRES_PASSWORD:codeatlas}
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+  ai:
+    openai:
+      api-key: ${AI_API_KEY:disabled}
+      base-url: ${AI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${AI_MODEL:gpt-4.1-mini}
+          temperature: 0.2
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+codeatlas:
+  repository-storage: ${REPOSITORY_STORAGE:./data/repositories}
+  max-repository-files: ${MAX_REPOSITORY_FILES:3000}
+  max-file-bytes: ${MAX_FILE_BYTES:524288}
+  ai-api-key: ${AI_API_KEY:}
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} - %msg%n"
+
