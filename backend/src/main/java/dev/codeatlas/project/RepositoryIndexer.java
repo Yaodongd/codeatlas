@@ -143,32 +143,25 @@ public class RepositoryIndexer {
     }
 
     private void fetchRepository(ProjectRecord project, Path root, Path target) throws Exception {
-        try {
-            var clone = Git.cloneRepository()
-                    .setURI(project.repositoryUrl())
-                    .setDirectory(target.toFile())
-                    .setDepth(1)
-                    .setCloneSubmodules(false)
-                    .setTimeout(properties.repositoryConnectTimeoutSeconds());
-            if (!project.branch().isBlank()) clone.setBranch(project.branch());
-            try (Git ignored = clone.call()) {
-                // Closing the repository releases file handles before indexing.
-            }
-            publishProgress(project.id(), "DOWNLOADING", 38);
-        } catch (Exception cloneFailure) {
-            if (!isGitHubRepository(project.repositoryUrl())) throw cloneFailure;
-            deleteSafely(root, target);
-            projects.updateStatus(project.id(), ProjectStatus.CLONING,
-                    "Git 直连超时，正在切换 GitHub 官方源码归档");
-            publishProgress(project.id(), "ARCHIVE_FALLBACK", 24);
-            try {
-                downloadGitHubArchive(project, target);
-                publishProgress(project.id(), "EXTRACTING", 48);
-            } catch (Exception archiveFailure) {
-                archiveFailure.addSuppressed(cloneFailure);
-                throw archiveFailure;
-            }
+        if (isGitHubRepository(project.repositoryUrl())) {
+            projects.updateStatus(project.id(), ProjectStatus.CLONING, "正在通过 GitHub 官方源码归档获取代码");
+            publishProgress(project.id(), "DOWNLOADING", 24);
+            downloadGitHubArchive(project, target);
+            publishProgress(project.id(), "EXTRACTING", 48);
+            return;
         }
+
+        var clone = Git.cloneRepository()
+                .setURI(project.repositoryUrl())
+                .setDirectory(target.toFile())
+                .setDepth(1)
+                .setCloneSubmodules(false)
+                .setTimeout(properties.repositoryConnectTimeoutSeconds());
+        if (!project.branch().isBlank()) clone.setBranch(project.branch());
+        try (Git ignored = clone.call()) {
+            // Closing the repository releases file handles before indexing.
+        }
+        publishProgress(project.id(), "DOWNLOADING", 38);
     }
 
     private void downloadGitHubArchive(ProjectRecord project, Path target) throws Exception {

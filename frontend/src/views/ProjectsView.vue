@@ -157,7 +157,7 @@ watch(() => form.repositoryUrl, value => {
         <details class="branch-options"><summary><PhGitBranch :size="13" />高级选项：指定分支</summary><label>目标分支<input v-model="form.branch" maxlength="120" placeholder="留空自动使用默认分支" /></label></details>
         <p v-if="formError" class="form-error">{{ formError }}</p>
         <button class="command-submit" :disabled="submitting || !repositoryState.valid"><PhPlus :size="15" />{{ submitting ? "正在创建索引任务…" : "导入并开始分析" }}</button>
-        <small>GitHub 直连失败时会自动切换 GitHub 官方源码归档；同时支持 GitLab、Gitee、Codeberg 公共仓库。</small>
+        <small>GitHub 仓库使用官方源码归档通道，避免服务器直连超时；同时支持 GitLab、Gitee、Codeberg 公共仓库。</small>
       </form>
     </div>
   </section>
