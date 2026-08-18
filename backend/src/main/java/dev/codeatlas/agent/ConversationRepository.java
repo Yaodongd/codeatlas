@@ -47,6 +47,20 @@ public class ConversationRepository {
                 .optional();
     }
 
+    public AnalysisSession renameSession(UUID id, String title) {
+        jdbc.sql("UPDATE analysis_sessions SET title = :title, updated_at = CURRENT_TIMESTAMP WHERE id = :id")
+                .param("id", id)
+                .param("title", title)
+                .update();
+        return findSession(id).orElseThrow();
+    }
+
+    public void deleteSession(UUID id) {
+        jdbc.sql("DELETE FROM analysis_sessions WHERE id = :id")
+                .param("id", id)
+                .update();
+    }
+
     public ChatMessage addMessage(UUID sessionId, String role, String content, List<String> citations) {
         UUID id = UUID.randomUUID();
         String citationsJson;

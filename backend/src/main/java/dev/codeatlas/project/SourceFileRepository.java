@@ -54,6 +54,13 @@ public class SourceFileRepository {
                 .list();
     }
 
+    public List<SourceFileRecord> listWithContent(UUID projectId) {
+        return jdbc.sql("SELECT * FROM source_files WHERE project_id = :projectId ORDER BY path")
+                .param("projectId", projectId)
+                .query(SourceFileRepository::mapFile)
+                .list();
+    }
+
     public Optional<SourceFileRecord> findByPath(UUID projectId, String path) {
         return jdbc.sql("SELECT * FROM source_files WHERE project_id = :projectId AND path = :path")
                 .param("projectId", projectId)
@@ -91,4 +98,3 @@ public class SourceFileRepository {
         );
     }
 }
-

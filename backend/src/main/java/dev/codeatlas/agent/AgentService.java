@@ -52,6 +52,18 @@ public class AgentService {
         return conversations.messages(sessionId);
     }
 
+    public AnalysisSession renameSession(UUID sessionId, String title) {
+        requireSession(sessionId);
+        if (title == null || title.isBlank()) throw new IllegalArgumentException("会话标题不能为空");
+        String normalized = title.trim().substring(0, Math.min(200, title.trim().length()));
+        return conversations.renameSession(sessionId, normalized);
+    }
+
+    public void deleteSession(UUID sessionId) {
+        requireSession(sessionId);
+        conversations.deleteSession(sessionId);
+    }
+
     public ChatMessage ask(UUID sessionId, String question) {
         if (question == null || question.isBlank()) throw new IllegalArgumentException("问题不能为空");
         AnalysisSession session = requireSession(sessionId);
@@ -123,4 +135,3 @@ public class AgentService {
                 .orElseThrow(() -> new IllegalArgumentException("分析会话不存在"));
     }
 }
-

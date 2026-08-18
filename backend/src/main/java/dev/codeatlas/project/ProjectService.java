@@ -58,4 +58,24 @@ public class ProjectService {
         if (query == null || query.isBlank()) return List.of();
         return sourceFiles.search(projectId, query.trim(), 20);
     }
+
+    public ProjectRecord reindex(UUID projectId) {
+        ProjectRecord project = get(projectId);
+        if (project.status() == ProjectStatus.CLONING || project.status() == ProjectStatus.INDEXING) {
+            throw new IllegalStateException("项目正在建立索引，请稍后再试");
+        }
+        projects.updateStatus(projectId, ProjectStatus.PENDING, "等待重新索引");
+        ProjectRecord pending = get(projectId);
+        indexer.index(pending);
+        return pending;
+    }
+
+    public void delete(UUID projectId) {
+        ProjectRecord project = get(projectId);
+        if (project.status() == ProjectStatus.CLONING || project.status() == ProjectStatus.INDEXING) {
+            throw new IllegalStateException("项目正在建立索引，暂时不能删除");
+        }
+        indexer.remove(project);
+        projects.delete(projectId);
+    }
 }

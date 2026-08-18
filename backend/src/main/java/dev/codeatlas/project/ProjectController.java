@@ -13,9 +13,11 @@ import java.util.UUID;
 @RequestMapping("/api/projects")
 public class ProjectController {
     private final ProjectService service;
+    private final ProjectAnalysisService analysis;
 
-    public ProjectController(ProjectService service) {
+    public ProjectController(ProjectService service, ProjectAnalysisService analysis) {
         this.service = service;
+        this.analysis = analysis;
     }
 
     @GetMapping
@@ -49,6 +51,36 @@ public class ProjectController {
         return service.search(id, query);
     }
 
+    @GetMapping("/{id}/insights")
+    public ProjectAnalysisService.ProjectInsights insights(@PathVariable UUID id) {
+        service.get(id);
+        return analysis.insights(id);
+    }
+
+    @GetMapping("/{id}/graph")
+    public ProjectAnalysisService.ProjectGraph graph(@PathVariable UUID id) {
+        service.get(id);
+        return analysis.graph(id);
+    }
+
+    @GetMapping("/{id}/impact")
+    public ProjectAnalysisService.ImpactAnalysis impact(@PathVariable UUID id, @RequestParam String path) {
+        service.get(id);
+        return analysis.impact(id, path);
+    }
+
+    @PostMapping("/{id}/reindex")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ProjectRecord reindex(@PathVariable UUID id) {
+        return service.reindex(id);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable UUID id) {
+        service.delete(id);
+    }
+
     public record CreateProjectRequest(
             @NotBlank @Size(max = 120) String name,
             @NotBlank @Size(max = 500) String repositoryUrl,
@@ -56,4 +88,3 @@ public class ProjectController {
     ) {
     }
 }
-

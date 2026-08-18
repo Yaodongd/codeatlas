@@ -83,6 +83,16 @@ public class RepositoryIndexer {
         }
     }
 
+    public void remove(ProjectRecord project) {
+        Path root = properties.repositoryStorage().toAbsolutePath().normalize();
+        Path target = root.resolve(project.id().toString()).normalize();
+        try {
+            deleteSafely(root, target);
+        } catch (IOException exception) {
+            throw new IllegalStateException("无法清理仓库文件", exception);
+        }
+    }
+
     private ArrayList<SourceFileRecord> scan(UUID projectId, Path target) throws Exception {
         var indexed = new ArrayList<SourceFileRecord>();
         try (var paths = Files.walk(target)) {

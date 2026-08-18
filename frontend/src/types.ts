@@ -41,3 +41,59 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface Metric {
+  name: string;
+  value: number;
+}
+
+export interface FileSummary {
+  path: string;
+  language: string;
+  lineCount: number;
+  byteSize: number;
+}
+
+export interface ProjectInsights {
+  totalFiles: number;
+  totalLines: number;
+  totalBytes: number;
+  languages: Metric[];
+  topDirectories: Metric[];
+  largestFiles: FileSummary[];
+  entryPoints: FileSummary[];
+  indexedAt: string | null;
+}
+
+export interface GraphNode {
+  id: string;
+  path: string;
+  language: string;
+  folder: string;
+  lineCount: number;
+  byteSize: number;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  type: "import" | "package" | string;
+  weight: number;
+}
+
+export interface ProjectGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface ImpactNode {
+  path: string;
+  depth: number;
+}
+
+export interface ImpactAnalysis {
+  sourcePath: string;
+  risk: "LOW" | "MEDIUM" | "HIGH";
+  score: number;
+  dependencies: ImpactNode[];
+  dependents: ImpactNode[];
+}

@@ -24,6 +24,12 @@ public class ApiExceptionHandler {
         return error("BAD_REQUEST", exception.getMessage());
     }
 
+    @ExceptionHandler(IllegalStateException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, Object> conflict(IllegalStateException exception) {
+        return error("CONFLICT", exception.getMessage());
+    }
+
     private static Map<String, Object> error(String code, String message) {
         return Map.of("code", code, "message", message, "timestamp", Instant.now().toString());
     }

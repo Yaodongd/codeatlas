@@ -2,9 +2,14 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { SourceFile } from "../types";
+import type { ProjectGraph, SourceFile } from "../types";
 
-const props = defineProps<{ files: SourceFile[]; activePath?: string | null }>();
+const props = defineProps<{
+  files: SourceFile[];
+  graph?: ProjectGraph | null;
+  activePath?: string | null;
+  minimumLinks?: number;
+}>();
 const emit = defineEmits<{ select: [path: string] }>();
 
 const host = ref<HTMLDivElement | null>(null);
@@ -19,6 +24,7 @@ let nodes: THREE.InstancedMesh | undefined;
 let frame = 0;
 let resizeObserver: ResizeObserver | undefined;
 let renderedFiles: SourceFile[] = [];
+let renderedPositions = new Map<string, THREE.Vector3>();
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 
@@ -49,6 +55,7 @@ function rebuild() {
   if (!scene) return;
   disposeScene();
   renderedFiles = props.files.slice(0, 180);
+  renderedPositions = new Map();
   if (!renderedFiles.length) return;
 
   const folders = [...new Set(renderedFiles.map(file => folderOf(file.path)))];
@@ -66,27 +73,32 @@ function rebuild() {
     const radius = 0.45 + ((seed >> 4) % 160) / 100;
     return base.clone().add(new THREE.Vector3(Math.cos(angle) * radius, (((seed >> 8) % 180) - 90) / 100, Math.sin(angle) * radius));
   });
+  renderedFiles.forEach((file, index) => renderedPositions.set(file.path, positions[index]));
 
   const geometry = new THREE.SphereGeometry(0.105, 14, 14);
-  const material = new THREE.MeshBasicMaterial({ color: 0x67d7ff, transparent: true, opacity: 0.96 });
+  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.96 });
   nodes = new THREE.InstancedMesh(geometry, material, renderedFiles.length);
   const matrix = new THREE.Matrix4();
+  const color = new THREE.Color();
   positions.forEach((position, index) => {
     matrix.setPosition(position);
     nodes!.setMatrixAt(index, matrix);
+    const language = renderedFiles[index].language;
+    color.set(language === "java" ? 0xb9ff4b : language === "vue" || language === "typescript"
+      ? 0x52d6ff : language === "yaml" || language === "sql" ? 0xaa91ff : 0x7b8b98);
+    nodes!.setColorAt(index, color);
   });
   nodes.instanceMatrix.needsUpdate = true;
+  if (nodes.instanceColor) nodes.instanceColor.needsUpdate = true;
   scene.add(nodes);
 
   const edges: number[] = [];
-  renderedFiles.forEach((file, index) => {
-    const folder = folderOf(file.path);
-    const candidates = renderedFiles
-      .map((other, otherIndex) => ({ other, otherIndex }))
-      .filter(item => item.otherIndex !== index && folderOf(item.other.path) === folder)
-      .slice(0, 2);
-    candidates.forEach(({ otherIndex }) => edges.push(...positions[index].toArray(), ...positions[otherIndex].toArray()));
-    if (index > 0 && index % 7 === 0) edges.push(...positions[index].toArray(), ...positions[index - 1].toArray());
+  const minimum = props.minimumLinks || 1;
+  const graphEdges = (props.graph?.edges || []).filter(edge => edge.weight >= minimum);
+  graphEdges.forEach(edge => {
+    const source = renderedPositions.get(edge.source);
+    const target = renderedPositions.get(edge.target);
+    if (source && target) edges.push(...source.toArray(), ...target.toArray());
   });
   const edgeGeometry = new THREE.BufferGeometry();
   edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edges, 3));
@@ -162,6 +174,35 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 
+function resetView() {
+  if (!camera || !controls) return;
+  camera.position.set(0, 7, 17);
+  controls.target.set(0, 0, 0);
+  controls.update();
+}
+
+function zoomIn() {
+  if (!camera || !controls) return;
+  camera.position.lerp(controls.target, 0.18);
+  controls.update();
+}
+
+function zoomOut() {
+  if (!camera || !controls) return;
+  camera.position.lerp(controls.target, -0.18);
+  controls.update();
+}
+
+function focusActive() {
+  const position = props.activePath ? renderedPositions.get(props.activePath) : undefined;
+  if (!position || !camera || !controls) return resetView();
+  controls.target.copy(position);
+  camera.position.copy(position.clone().add(new THREE.Vector3(0, 2.5, 6)));
+  controls.update();
+}
+
+defineExpose({ resetView, zoomIn, zoomOut, focusActive });
+
 onMounted(() => {
   if (!host.value) return;
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
@@ -193,6 +234,8 @@ onMounted(() => {
 
 watch(() => props.files, rebuild, { deep: true });
 watch(() => props.activePath, updateSelection);
+watch(() => props.graph, rebuild, { deep: true });
+watch(() => props.minimumLinks, rebuild);
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(frame);

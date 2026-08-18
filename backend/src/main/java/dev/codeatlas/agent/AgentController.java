@@ -41,9 +41,24 @@ public class AgentController {
         return service.ask(sessionId, request.content());
     }
 
+    @PatchMapping("/sessions/{sessionId}")
+    public AnalysisSession renameSession(@PathVariable UUID sessionId,
+                                         @Valid @RequestBody RenameSessionRequest request) {
+        return service.renameSession(sessionId, request.title());
+    }
+
+    @DeleteMapping("/sessions/{sessionId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteSession(@PathVariable UUID sessionId) {
+        service.deleteSession(sessionId);
+    }
+
     public record CreateSessionRequest(@Size(max = 200) String title) {
     }
 
     public record AskRequest(@NotBlank @Size(max = 8000) String content) {
+    }
+
+    public record RenameSessionRequest(@NotBlank @Size(max = 200) String title) {
     }
 }
