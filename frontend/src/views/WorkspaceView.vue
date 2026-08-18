@@ -16,7 +16,6 @@ import type { AnalysisSession, ChatMessage, Project, SourceFile } from "../types
 
 const route = useRoute();
 const projectId = route.params.id as string;
-const demoMode = computed(() => route.query.demo === "1" || projectId === "demo");
 const project = ref<Project | null>(null);
 const files = ref<SourceFile[]>([]);
 const activeFile = ref<SourceFile | null>(null);
@@ -51,33 +50,6 @@ const evidence = computed(() => {
   return [...new Set(cited.length ? cited : files.value.slice(0, 4).map(file => file.path))].slice(0, 4);
 });
 
-function demoFile(path: string, language: string, content: string): SourceFile {
-  return { id: path, projectId: "demo", path, language, content, byteSize: content.length, lineCount: content.split("\n").length, sha256: "demo" };
-}
-
-function setupDemo() {
-  project.value = {
-    id: "demo", name: "spring-petclinic", repositoryUrl: "https://github.com/spring-projects/spring-petclinic",
-    branch: "main", status: "READY", statusMessage: "索引完成", fileCount: 628,
-    indexedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
-  };
-  files.value = [
-    demoFile("src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java", "Java", `@Controller\nclass OwnerController {\n  private final ClinicService clinicService;\n\n  @GetMapping("/owners/{ownerId}/pets")\n  String showPets(@PathVariable int ownerId, Model model) {\n    Owner owner = clinicService.findOwnerById(ownerId);\n    List<Visit> visits = clinicService.findVisitsByOwnerId(ownerId);\n    model.addAttribute("owner", owner);\n    model.addAttribute("visits", visits);\n    return "owners/visitsList";\n  }\n}`),
-    demoFile("src/main/java/org/springframework/samples/petclinic/service/ClinicService.java", "Java", `@Service\n@Transactional(readOnly = true)\npublic class ClinicService {\n  private final VisitRepository visits;\n\n  public List<Visit> findVisitsByOwnerId(int ownerId) {\n    return visits.findByOwnerId(ownerId);\n  }\n}`),
-    demoFile("src/main/java/org/springframework/samples/petclinic/repository/VisitRepository.java", "Java", `public interface VisitRepository extends Repository<Visit, Integer> {\n  @Query("SELECT visit FROM Visit visit WHERE visit.pet.id = :petId")\n  List<Visit> findByPetId(Integer petId);\n}`),
-    demoFile("src/main/java/org/springframework/samples/petclinic/model/Visit.java", "Java", `@Entity\n@Table(name = "visits")\npublic class Visit extends BaseEntity {\n  @Column(name = "visit_date")\n  private LocalDate date;\n  private String description;\n}`),
-    demoFile("src/main/resources/db/h2/schema.sql", "SQL", `CREATE TABLE visits (\n  id INTEGER IDENTITY PRIMARY KEY,\n  pet_id INTEGER NOT NULL,\n  visit_date DATE,\n  description VARCHAR(255)\n);`),
-    ...Array.from({ length: 160 }, (_, index) => demoFile(`src/main/java/org/springframework/samples/petclinic/${["owner", "vet", "system", "model", "repository", "service", "web", "config"][index % 8]}/${["Owner", "Pet", "Vet", "Visit", "Specialty", "Clinic", "Router", "Security"][index % 8]}${index}.java`, "Java", `package org.springframework.samples.petclinic;\n\npublic class Module${index} {\n  public void execute() { }\n}`))
-  ];
-  activeFile.value = files.value[0];
-  session.value = { id: "demo-session", projectId: "demo", title: "变更影响分析", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-  messages.value = [{
-    id: "demo-answer", sessionId: "demo-session", role: "assistant",
-    content: "预约时间解析的改动会影响 Web、Service、Repository 四个模块。入口位于 OwnerController，业务转换集中在 ClinicService，最终落到 VisitRepository 与 visits 表。建议同步补充日期边界和时区测试。",
-    citations: files.value.slice(0, 4).map(file => file.path), createdAt: new Date().toISOString()
-  }];
-}
-
 async function loadProject() {
   project.value = await api.getProject(projectId);
   if (project.value.status === "READY" && !files.value.length) await initializeWorkspace();
@@ -92,8 +64,7 @@ async function initializeWorkspace() {
 }
 
 async function openFile(path: string) {
-  const local = files.value.find(file => file.path === path);
-  activeFile.value = demoMode.value && local ? local : await api.getFile(projectId, path);
+  activeFile.value = await api.getFile(projectId, path);
 }
 
 async function ask() {
@@ -105,16 +76,7 @@ async function ask() {
   await nextTick();
   chatElement.value?.scrollTo({ top: chatElement.value.scrollHeight, behavior: "smooth" });
   try {
-    if (demoMode.value) {
-      await new Promise(resolve => window.setTimeout(resolve, 650));
-      messages.value.push({
-        id: crypto.randomUUID(), sessionId: session.value.id, role: "assistant",
-        content: "我沿着调用关系定位到 4 个直接影响点：请求入口、日期转换、持久化查询和 Visit 实体。图中已经用绿色路径标出相关节点。",
-        citations: files.value.slice(0, 4).map(file => file.path), createdAt: new Date().toISOString()
-      });
-    } else {
-      messages.value.push(await api.ask(session.value.id, content));
-    }
+    messages.value.push(await api.ask(session.value.id, content));
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "Agent 请求失败";
   } finally {
@@ -125,7 +87,6 @@ async function ask() {
 }
 
 onMounted(async () => {
-  if (demoMode.value) return setupDemo();
   try {
     await loadProject();
     timer = window.setInterval(() => void loadProject(), 3500);
