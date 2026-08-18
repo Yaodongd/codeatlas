@@ -76,20 +76,14 @@ function rebuild() {
   renderedFiles.forEach((file, index) => renderedPositions.set(file.path, positions[index]));
 
   const geometry = new THREE.SphereGeometry(0.105, 14, 14);
-  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.96 });
+  const material = new THREE.MeshBasicMaterial({ color: 0x67d7ff, transparent: true, opacity: 0.96 });
   nodes = new THREE.InstancedMesh(geometry, material, renderedFiles.length);
   const matrix = new THREE.Matrix4();
-  const color = new THREE.Color();
   positions.forEach((position, index) => {
     matrix.setPosition(position);
     nodes!.setMatrixAt(index, matrix);
-    const language = renderedFiles[index].language;
-    color.set(language === "java" ? 0xb9ff4b : language === "vue" || language === "typescript"
-      ? 0x52d6ff : language === "yaml" || language === "sql" ? 0xaa91ff : 0x7b8b98);
-    nodes!.setColorAt(index, color);
   });
   nodes.instanceMatrix.needsUpdate = true;
-  if (nodes.instanceColor) nodes.instanceColor.needsUpdate = true;
   scene.add(nodes);
 
   const edges: number[] = [];

@@ -340,7 +340,7 @@ onBeforeUnmount(() => timer && window.clearInterval(timer));
             <button title="恢复视图" @click="graphRef?.resetView()"><ArrowsClockwise :size="16" /></button>
             <button title="全屏" @click="toggleFullscreen"><ArrowsOut :size="16" /></button>
           </div>
-          <div class="graph-legend"><strong>{{ activeMode }}</strong><span><i class="lime"></i>Java / 当前文件</span><span><i class="cyan"></i>Vue / TypeScript</span><span><i class="violet"></i>配置 / SQL</span></div>
+          <div class="graph-legend"><strong>{{ activeMode }}</strong><span><i class="lime"></i>当前文件</span><span><i class="cyan"></i>索引文件</span><span><i class="violet"></i>import 依赖</span></div>
           <CodeGraph ref="graphRef" :files="filteredFiles" :graph="visibleGraph" :minimum-links="minimumLinks" :active-path="activeFile?.path" @select="openFile" />
           <div class="graph-caption">真实 import 关系 · 拖拽旋转 · 滚轮缩放 · 点击节点查看代码</div>
         </div>
