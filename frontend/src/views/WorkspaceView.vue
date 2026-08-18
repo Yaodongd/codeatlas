@@ -262,7 +262,21 @@ function toggleFolder(folder: string) {
 
 async function copyRepositoryUrl() {
   if (!project.value) return;
-  await navigator.clipboard.writeText(project.value.repositoryUrl);
+  const repositoryUrl = project.value.repositoryUrl;
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+    await navigator.clipboard.writeText(repositoryUrl);
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = repositoryUrl;
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    const copied = document.execCommand("copy");
+    input.remove();
+    if (!copied) return notify(null, "复制失败，请手动复制仓库地址");
+  }
   error.value = "仓库地址已复制";
 }
 
