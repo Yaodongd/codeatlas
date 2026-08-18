@@ -32,6 +32,31 @@ services:
     restart: unless-stopped
     networks: [backend]
 
+  migrate:
+    image: postgres:17-alpine
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-codeatlas}
+      PGUSER: ${POSTGRES_USER:-codeatlas}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    command:
+      - sh
+      - -ec
+      - |
+        if [ "$(psql -tAc "SELECT to_regclass('public.projects')")" = "projects" ]; then
+          echo "Database schema already exists"
+        else
+          psql -v ON_ERROR_STOP=1 -f /migrations/V1__initial_schema.sql
+        fi
+    volumes:
+      - ./backend/src/main/resources/db/migration:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+
   backend:
     build:
       context: ./backend
@@ -56,6 +81,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health/readiness"]
       interval: 10s
