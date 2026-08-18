@@ -22,6 +22,7 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipInputStream;
 
 @Service
@@ -39,6 +40,7 @@ public class RepositoryIndexer {
     private final IndexPersistenceService persistence;
     private final CodeAtlasProperties properties;
     private final StringRedisTemplate redis;
+    private final Set<UUID> activeProjects = ConcurrentHashMap.newKeySet();
 
     public RepositoryIndexer(ProjectRepository projects,
                              IndexPersistenceService persistence,
@@ -52,13 +54,12 @@ public class RepositoryIndexer {
 
     @Async
     public void index(ProjectRecord project) {
+        if (!activeProjects.add(project.id())) return;
         Path root = properties.repositoryStorage().toAbsolutePath().normalize();
         Path target = root.resolve(project.id().toString()).normalize();
-        if (!target.startsWith(root)) {
-            throw new IllegalStateException("仓库存储路径越界");
-        }
 
         try {
+            if (!target.startsWith(root)) throw new IllegalStateException("仓库存储路径越界");
             projects.updateStatus(project.id(), ProjectStatus.CLONING, "正在连接代码托管平台");
             publishProgress(project.id(), "CONNECTING", 8);
             Files.createDirectories(root);
@@ -77,7 +78,13 @@ public class RepositoryIndexer {
         } catch (Exception exception) {
             projects.updateStatus(project.id(), ProjectStatus.FAILED, safeMessage(exception));
             publishProgress(project.id(), "FAILED", 100);
+        } finally {
+            activeProjects.remove(project.id());
         }
+    }
+
+    public boolean isRunning(UUID projectId) {
+        return activeProjects.contains(projectId);
     }
 
     public ProjectProgress progress(ProjectRecord project) {

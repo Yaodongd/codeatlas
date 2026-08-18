@@ -65,7 +65,7 @@ public class ProjectService {
 
     public ProjectRecord reindex(UUID projectId) {
         ProjectRecord project = get(projectId);
-        if (project.status() == ProjectStatus.CLONING || project.status() == ProjectStatus.INDEXING) {
+        if (indexer.isRunning(projectId)) {
             throw new IllegalStateException("项目正在建立索引，请稍后再试");
         }
         projects.updateStatus(projectId, ProjectStatus.PENDING, "等待重新索引");
@@ -76,7 +76,7 @@ public class ProjectService {
 
     public void delete(UUID projectId) {
         ProjectRecord project = get(projectId);
-        if (project.status() == ProjectStatus.CLONING || project.status() == ProjectStatus.INDEXING) {
+        if (indexer.isRunning(projectId)) {
             throw new IllegalStateException("项目正在建立索引，暂时不能删除");
         }
         indexer.remove(project);
