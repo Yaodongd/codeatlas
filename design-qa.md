@@ -1,55 +1,43 @@
 # CodeAtlas Observatory — Design QA
 
-- Source visual truth: `C:\Users\ddyao3\.codex\generated_images\019fe513-49b0-7e42-8d01-ad94fd72b0dd\exec-7488fa4c-0093-4a5c-9b0a-d1153332a2b5.png`
-- Implementation screenshot: `D:\codeatlas\design-implementation-1440x1024-final.png`
-- Combined comparison: `D:\codeatlas\design-comparison-final.png`
-- Viewport: 1440 × 1024 CSS px, device pixel ratio 1
-- Source pixels: 1487 × 1058, normalized to 1440 × 1024 for comparison
-- Implementation pixels: 1420 × 1024 browser capture, normalized to 1440 × 1024 for comparison
-- State: `projects/demo?demo=1`, 代码星图 selected, OwnerController.java selected, populated Agent evidence state
+- Design reference: `C:\Users\ddyao3\.codex\generated_images\019fe513-49b0-7e42-8d01-ad94fd72b0dd\exec-7488fa4c-0093-4a5c-9b0a-d1153332a2b5.png`
+- Production URL: `http://120.53.108.64/codeatlas/`
+- Production commit: `b8fa7b2`
+- Tested state: real empty repository state backed by the production API and PostgreSQL
 
-## Full-view comparison evidence
+## Scope
 
-The final comparison preserves the source screen's major composition: compact product header, repository explorer, dominant 3D graph canvas, lower code reader, and continuous Agent evidence rail. Region proportions, density, dark graphite palette, fluorescent lime focus state, fine borders, square controls, and code-first hierarchy are materially aligned.
+The reference establishes the visual system rather than a separate demo route: graphite surfaces, fluorescent lime focus states, mono telemetry, compact borders, Three.js spatial navigation, a code-first hierarchy, and a persistent analysis rail.
 
-## Focused region comparison evidence
+The production implementation applies that system to the real application flow:
 
-- Graph: dense clustered node topology, active lime node, dependency edges, package labels, graph statistics, legend, zoom/target controls, and interaction caption are present.
-- Code reader: selected file, line count, mono typography, line numbers, and highlighted evidence line match the intended lower drawer.
-- Agent rail: question input, analysis answer, impact path, evidence links, impact table, and persistent action are present and legible.
-- Explorer: branch selector, filter, grouped files, active file, scope filters, range control, and index state match the intended structure.
+- The home screen loads projects from `GET /api/projects`.
+- The repository form sends imports to the real backend.
+- The Three.js project orbit is derived from stored projects, not generated sample nodes.
+- The workspace loads indexed files, dependency graph data, sessions, messages, and Agent evidence from real APIs.
+- No demo query parameter, mock project, fake file, or prewritten Agent response remains in the runtime code.
 
-## Findings
+## Verification
 
-No actionable P0, P1, or P2 issues remain.
+- Frontend production build: passed.
+- Docker Compose configuration on the server: passed.
+- Database schema migration: passed (`codeatlas-migrate-1`, exit 0).
+- Backend readiness: passed (`UP`).
+- Frontend and gateway health checks: passed.
+- Public route: passed (HTTP 200).
+- Project API: passed (HTTP 200, valid empty array on a fresh database).
+- Browser DOM verification: passed; the production page renders the real empty state and import controls without an API error.
 
-### Required fidelity surfaces
+## Visual and interaction review
 
-- Fonts and typography: passed. Inter and IBM Plex Mono are bundled locally; display, UI, code, hierarchy, truncation, weights, and line height are consistent with the reference.
-- Spacing and layout rhythm: passed. Three-column proportions, toolbar height, graph/code split, dense rails, 1px borders, and compact vertical rhythm are aligned.
-- Colors and visual tokens: passed. Graphite surfaces, low-contrast separators, lime selected state, cyan dependency graph, violet configuration labels, and semantic status colors are consistent.
-- Image quality and asset fidelity: passed. The central visual is an actual WebGL/Three.js graph rather than a raster placeholder or CSS illustration. Phosphor icons provide the interface icon system.
-- Copy and content: passed. Chinese repository-analysis language, realistic Java paths, impact reasoning, evidence citations, and Spring Petclinic data support the intended task.
+- Typography, color tokens, dense command-center layout, and responsive hierarchy match the selected observatory direction.
+- The project orbit and workspace graph use actual WebGL/Three.js components.
+- Empty, loading, indexing, ready, and failed states are represented without substituting sample content.
+- Search and navigation operate on the project store; the import form is connected to the backend.
+- Agent submission was not triggered during production QA to avoid creating data or consuming an external AI request.
 
-## Interaction verification
+## Result
 
-- Analysis-mode tab selection: passed.
-- Repository name filtering: passed.
-- File selection and code-panel synchronization: passed.
-- Agent question submission and streamed answer state: passed.
-- Evidence buttons and file opening: passed.
-- Three.js orbit, zoom, node hover, and node-click selection: rendered and wired.
-- Browser console warnings/errors: none.
-
-## Comparison history
-
-1. Initial capture: P1 graph nodes were too dark; P2 graph density and Agent lower rail were sparse compared with the source.
-2. Fixes: changed node material to high-contrast cyan, added a lime active-node halo, expanded representative graph data to 165 files/628 indexed nodes, added package labels, and added the Agent impact-summary table.
-3. Post-fix evidence: `design-implementation-1440x1024-final.png` and `design-comparison-final.png` show the corrected graph contrast, density, and right-rail rhythm.
-
-## Follow-up polish
-
-- P3: add per-package node colors and a real graph minimap if greater fidelity is desired; the current single-cyan graph is intentionally clearer and cheaper to render.
-- P3: lazy-load Three.js to reduce the initial workspace JavaScript chunk.
+No P0, P1, or P2 design or runtime blockers remain in the verified production state.
 
 final result: passed
