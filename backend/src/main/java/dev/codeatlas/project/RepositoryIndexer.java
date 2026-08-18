@@ -7,6 +7,11 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,6 +22,7 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.zip.ZipInputStream;
 
 @Service
 public class RepositoryIndexer {
@@ -53,27 +59,18 @@ public class RepositoryIndexer {
         }
 
         try {
-            projects.updateStatus(project.id(), ProjectStatus.CLONING, "正在克隆公共仓库");
-            publishProgress(project.id(), "CLONING", 5);
+            projects.updateStatus(project.id(), ProjectStatus.CLONING, "正在连接代码托管平台");
+            publishProgress(project.id(), "CONNECTING", 8);
             Files.createDirectories(root);
             deleteSafely(root, target);
 
-            var clone = Git.cloneRepository()
-                    .setURI(project.repositoryUrl())
-                    .setDirectory(target.toFile())
-                    .setDepth(1)
-                    .setCloneSubmodules(false)
-                    .setTimeout(120);
-            if (!project.branch().isBlank()) {
-                clone.setBranch(project.branch());
-            }
-            try (Git ignored = clone.call()) {
-                // Closing the repository releases file handles before indexing.
-            }
+            fetchRepository(project, root, target);
 
-            projects.updateStatus(project.id(), ProjectStatus.INDEXING, "正在建立代码索引");
-            publishProgress(project.id(), "INDEXING", 25);
+            projects.updateStatus(project.id(), ProjectStatus.INDEXING, "正在扫描源文件");
+            publishProgress(project.id(), "SCANNING", 58);
             var indexed = scan(project.id(), target);
+            projects.updateStatus(project.id(), ProjectStatus.INDEXING, "正在分析代码关系并保存索引");
+            publishProgress(project.id(), "ANALYZING", 82);
             persistence.replace(project.id(), indexed);
             projects.markReady(project.id(), indexed.size());
             publishProgress(project.id(), "READY", 100);
@@ -81,6 +78,29 @@ public class RepositoryIndexer {
             projects.updateStatus(project.id(), ProjectStatus.FAILED, safeMessage(exception));
             publishProgress(project.id(), "FAILED", 100);
         }
+    }
+
+    public ProjectProgress progress(ProjectRecord project) {
+        String stage = project.status().name();
+        int percent = switch (project.status()) {
+            case PENDING -> 2;
+            case CLONING -> 12;
+            case INDEXING -> 65;
+            case READY, FAILED -> 100;
+        };
+        try {
+            String cached = redis.opsForValue().get("codeatlas:index:" + project.id());
+            if (cached != null) {
+                int separator = cached.lastIndexOf(':');
+                if (separator > 0) {
+                    stage = cached.substring(0, separator);
+                    percent = Integer.parseInt(cached.substring(separator + 1));
+                }
+            }
+        } catch (Exception ignored) {
+            // The project row still provides a useful fallback if Redis is unavailable.
+        }
+        return new ProjectProgress(stage, Math.max(0, Math.min(100, percent)), project.statusMessage());
     }
 
     public void remove(ProjectRecord project) {
@@ -120,6 +140,98 @@ public class RepositoryIndexer {
             }
         }
         return indexed;
+    }
+
+    private void fetchRepository(ProjectRecord project, Path root, Path target) throws Exception {
+        try {
+            var clone = Git.cloneRepository()
+                    .setURI(project.repositoryUrl())
+                    .setDirectory(target.toFile())
+                    .setDepth(1)
+                    .setCloneSubmodules(false)
+                    .setTimeout(properties.repositoryConnectTimeoutSeconds());
+            if (!project.branch().isBlank()) clone.setBranch(project.branch());
+            try (Git ignored = clone.call()) {
+                // Closing the repository releases file handles before indexing.
+            }
+            publishProgress(project.id(), "DOWNLOADING", 38);
+        } catch (Exception cloneFailure) {
+            if (!isGitHubRepository(project.repositoryUrl())) throw cloneFailure;
+            deleteSafely(root, target);
+            projects.updateStatus(project.id(), ProjectStatus.CLONING,
+                    "Git 直连超时，正在切换 GitHub 官方源码归档");
+            publishProgress(project.id(), "ARCHIVE_FALLBACK", 24);
+            try {
+                downloadGitHubArchive(project, target);
+                publishProgress(project.id(), "EXTRACTING", 48);
+            } catch (Exception archiveFailure) {
+                archiveFailure.addSuppressed(cloneFailure);
+                throw archiveFailure;
+            }
+        }
+    }
+
+    private void downloadGitHubArchive(ProjectRecord project, Path target) throws Exception {
+        URI archiveUri = githubArchiveUri(project.repositoryUrl(), project.branch());
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(properties.repositoryConnectTimeoutSeconds()))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+        HttpRequest request = HttpRequest.newBuilder(archiveUri)
+                .timeout(Duration.ofMinutes(3))
+                .header("Accept", "application/zip")
+                .header("User-Agent", "CodeAtlas/0.1")
+                .GET()
+                .build();
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() != 200) {
+            response.body().close();
+            throw new IOException("GitHub 官方归档返回 HTTP " + response.statusCode());
+        }
+        extractArchive(response.body(), target, properties.maxRepositoryArchiveBytes());
+    }
+
+    private static void extractArchive(InputStream input, Path target, long maxBytes) throws IOException {
+        Files.createDirectories(target);
+        long extractedBytes = 0;
+        byte[] buffer = new byte[16 * 1024];
+        try (input; var zip = new ZipInputStream(input)) {
+            for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                String name = entry.getName().replace('\\', '/');
+                int rootSeparator = name.indexOf('/');
+                if (rootSeparator < 0 || rootSeparator == name.length() - 1) continue;
+                String relativeName = name.substring(rootSeparator + 1);
+                Path output = target.resolve(relativeName).normalize();
+                if (!output.startsWith(target)) throw new IOException("源码归档包含非法路径");
+                if (entry.isDirectory()) {
+                    Files.createDirectories(output);
+                    continue;
+                }
+                Files.createDirectories(output.getParent());
+                try (var destination = Files.newOutputStream(output)) {
+                    int read;
+                    while ((read = zip.read(buffer)) != -1) {
+                        extractedBytes += read;
+                        if (extractedBytes > maxBytes) throw new IOException("源码归档超过允许大小");
+                        destination.write(buffer, 0, read);
+                    }
+                }
+            }
+        }
+    }
+
+    static URI githubArchiveUri(String repositoryUrl, String branch) {
+        URI repository = URI.create(repositoryUrl);
+        String[] segments = repository.getPath().replaceFirst("^/", "").split("/");
+        if (segments.length < 2) throw new IllegalArgumentException("GitHub 仓库地址缺少 owner/repository");
+        String owner = segments[0];
+        String name = segments[1].replaceFirst("\\.git$", "");
+        String reference = branch == null || branch.isBlank() ? "HEAD" : "refs/heads/" + branch;
+        return URI.create("https://codeload.github.com/" + owner + "/" + name + "/zip/" + reference);
+    }
+
+    private static boolean isGitHubRepository(String repositoryUrl) {
+        return "github.com".equalsIgnoreCase(URI.create(repositoryUrl).getHost());
     }
 
     private boolean shouldSkip(Path relative, Path file) throws IOException {
@@ -181,7 +293,12 @@ public class RepositoryIndexer {
 
     private static String safeMessage(Exception exception) {
         String value = exception.getMessage();
+        if (value != null && value.toLowerCase(Locale.ROOT).contains("time")) {
+            return "连接代码托管平台超时。已尝试 Git 克隆和 GitHub 官方归档，请检查服务器出站网络后重试。";
+        }
         return value == null || value.isBlank() ? exception.getClass().getSimpleName()
                 : value.substring(0, Math.min(value.length(), 500));
     }
+
+    public record ProjectProgress(String stage, int percent, String message) {}
 }

@@ -1,5 +1,5 @@
 import type {
-  AnalysisSession, ChatMessage, ImpactAnalysis, Project, ProjectGraph, ProjectInsights, SourceFile
+  AnalysisSession, ChatMessage, ImpactAnalysis, Project, ProjectGraph, ProjectInsights, ProjectProgress, SourceFile
 } from "./types";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -21,6 +21,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   listProjects: () => request<Project[]>("/projects"),
   getProject: (id: string) => request<Project>(`/projects/${id}`),
+  getProjectProgress: (id: string) => request<ProjectProgress>(`/projects/${id}/progress`),
   createProject: (payload: { name: string; repositoryUrl: string; branch: string }) =>
     request<Project>("/projects", { method: "POST", body: JSON.stringify(payload) }),
   listFiles: (id: string) => request<SourceFile[]>(`/projects/${id}/files`),

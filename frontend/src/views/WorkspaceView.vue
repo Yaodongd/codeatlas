@@ -7,23 +7,29 @@ import {
   PhCaretDown as CaretDown, PhChartLineUp as ChartLineUp, PhCode as Code,
   PhCopy as Copy, PhCrosshair as Crosshair, PhCube as Cube, PhFileCode as FileCode,
   PhFiles as Files, PhFunnel as Funnel, PhGitBranch as GitBranch, PhGithubLogo as GithubLogo,
+  PhHouse as House,
   PhMagnifyingGlass as MagnifyingGlass, PhMinus as Minus, PhPaperPlaneTilt as PaperPlaneTilt,
   PhPath as Path, PhPlus as Plus, PhSlidersHorizontal as SlidersHorizontal,
   PhSparkle as Sparkle, PhTerminalWindow as TerminalWindow, PhTrash as Trash, PhX as X
 } from "@phosphor-icons/vue";
 import CodeGraph from "../components/CodeGraph.vue";
+import ChangeAdvisor from "../components/ChangeAdvisor.vue";
+import IndexingPipeline from "../components/IndexingPipeline.vue";
+import MarkdownContent from "../components/MarkdownContent.vue";
+import ProjectOverview from "../components/ProjectOverview.vue";
 import { api } from "../api";
 import type {
-  AnalysisSession, ChatMessage, ImpactAnalysis, Project, ProjectGraph, ProjectInsights, SourceFile
+  AnalysisSession, ChatMessage, ImpactAnalysis, Project, ProjectGraph, ProjectInsights, ProjectProgress, SourceFile
 } from "../types";
 
-type WorkspaceMode = "代码星图" | "依赖关系" | "洞察" | "变更";
+type WorkspaceMode = "概览" | "代码星图" | "依赖关系" | "洞察" | "变更";
 type GraphHandle = { resetView: () => void; zoomIn: () => void; zoomOut: () => void; focusActive: () => void };
 
 const route = useRoute();
 const router = useRouter();
 const projectId = route.params.id as string;
 const project = ref<Project | null>(null);
+const progress = ref<ProjectProgress | null>(null);
 const files = ref<SourceFile[]>([]);
 const activeFile = ref<SourceFile | null>(null);
 const insights = ref<ProjectInsights | null>(null);
@@ -38,11 +44,13 @@ const globalQuery = ref("");
 const searchResults = ref<SourceFile[]>([]);
 const searching = ref(false);
 const asking = ref(false);
+const analysisPhase = ref(0);
 const error = ref("");
-const activeMode = ref<WorkspaceMode>("代码星图");
+const activeMode = ref<WorkspaceMode>("概览");
 const showSearch = ref(false);
 const showProjectMenu = ref(false);
 const showSessions = ref(false);
+const showChangeAdvisor = ref(false);
 const showConfig = ref(true);
 const onlyDirect = ref(false);
 const evidenceOnly = ref(false);
@@ -52,7 +60,10 @@ const chatElement = ref<HTMLElement | null>(null);
 const graphElement = ref<HTMLElement | null>(null);
 const graphRef = ref<GraphHandle | null>(null);
 let timer: number | undefined;
+let analysisTimer: number | undefined;
 let initialized = false;
+
+const analysisSteps = ["理解问题与目标", "搜索相关文件", "读取代码并追踪关系", "组织结论与测试建议"];
 
 const filteredFiles = computed(() => {
   const value = fileFilter.value.toLowerCase().trim();
@@ -113,7 +124,12 @@ function createClientId() {
 
 async function loadProject() {
   project.value = await api.getProject(projectId);
-  if (project.value.status === "READY" && !initialized) await initializeWorkspace();
+  if (project.value.status === "READY") {
+    progress.value = { stage: "READY", percent: 100, message: project.value.statusMessage };
+    if (!initialized) await initializeWorkspace();
+  } else {
+    progress.value = await api.getProjectProgress(projectId).catch(() => null);
+  }
 }
 
 async function initializeWorkspace() {
@@ -208,6 +224,10 @@ async function ask(contentOverride?: string) {
   if (!content || !session.value || asking.value) return;
   question.value = "";
   asking.value = true;
+  analysisPhase.value = 0;
+  analysisTimer = window.setInterval(() => {
+    analysisPhase.value = Math.min(analysisSteps.length - 1, analysisPhase.value + 1);
+  }, 5500);
   messages.value.push({ id: createClientId(), sessionId: session.value.id, role: "user", content, citations: [], createdAt: new Date().toISOString() });
   await nextTick();
   chatElement.value?.scrollTo({ top: chatElement.value.scrollHeight, behavior: "smooth" });
@@ -218,6 +238,8 @@ async function ask(contentOverride?: string) {
     messages.value = messages.value.filter(message => message.content !== content || message.role !== "user");
     notify(reason, "Agent 请求失败");
   } finally {
+    if (analysisTimer) window.clearInterval(analysisTimer);
+    analysisTimer = undefined;
     asking.value = false;
     await nextTick();
     chatElement.value?.scrollTo({ top: chatElement.value.scrollHeight, behavior: "smooth" });
@@ -227,7 +249,34 @@ async function ask(contentOverride?: string) {
 function generateChangeAdvice() {
   const target = activeFile.value?.path;
   if (!target) return notify(null, "请先选择一个文件");
-  void ask(`请分析修改 ${target} 的影响范围，列出直接依赖、间接影响、风险和建议的测试清单。`);
+  showChangeAdvisor.value = true;
+}
+
+function runChangeAnalysis(intent: string, focus: string[]) {
+  const target = activeFile.value?.path;
+  if (!target) return;
+  showChangeAdvisor.value = false;
+  activeMode.value = "变更";
+  const intentText = intent || "尚未确定具体实现，请进行通用变更影响评估";
+  void ask(`请基于真实代码评估对 ${target} 的修改。修改意图：${intentText}。重点关注：${focus.join("、") || "调用关系和回归测试"}。请用结构化方式列出直接依赖、间接影响、风险、实施建议和可执行测试清单，并引用证据文件。`);
+}
+
+function startProjectExplanation() {
+  void ask("请基于真实代码带我理解这个项目：先说明项目用途，再梳理技术栈、入口、核心模块、主要请求链路和数据持久化，并为每个结论提供文件证据。");
+}
+
+function exploreGraph() {
+  activeMode.value = "代码星图";
+}
+
+async function openOverviewFile(path: string) {
+  activeMode.value = "代码星图";
+  await openFile(path);
+}
+
+function openChangeAdvisor() {
+  if (!activeFile.value) return notify(null, "请先从入口文件或文件树选择一个目标文件");
+  showChangeAdvisor.value = true;
 }
 
 async function reindexProject() {
@@ -289,12 +338,15 @@ async function toggleFullscreen() {
 onMounted(async () => {
   try {
     await loadProject();
-    timer = window.setInterval(() => void loadProject().catch(reason => notify(reason, "项目刷新失败")), 3500);
+    timer = window.setInterval(() => void loadProject().catch(reason => notify(reason, "项目刷新失败")), 2200);
   } catch (reason) {
     notify(reason, "项目加载失败");
   }
 });
-onBeforeUnmount(() => timer && window.clearInterval(timer));
+onBeforeUnmount(() => {
+  if (timer) window.clearInterval(timer);
+  if (analysisTimer) window.clearInterval(analysisTimer);
+});
 </script>
 
 <template>
@@ -311,21 +363,17 @@ onBeforeUnmount(() => timer && window.clearInterval(timer));
         </div>
       </div>
       <nav class="mode-tabs" aria-label="分析模式">
-        <button v-for="mode in (['代码星图', '依赖关系', '洞察', '变更'] as WorkspaceMode[])" :key="mode" :class="{ active: activeMode === mode }" @click="activeMode = mode">
-          <Atom v-if="mode === '代码星图'" :size="15" /><Path v-else-if="mode === '依赖关系'" :size="15" /><ChartLineUp v-else :size="15" />{{ mode }}
+        <button v-for="mode in (['概览', '代码星图', '依赖关系', '洞察', '变更'] as WorkspaceMode[])" :key="mode" :class="{ active: activeMode === mode }" @click="activeMode = mode">
+          <House v-if="mode === '概览'" :size="15" /><Atom v-else-if="mode === '代码星图'" :size="15" /><Path v-else-if="mode === '依赖关系'" :size="15" /><ChartLineUp v-else :size="15" />{{ mode }}
         </button>
       </nav>
       <div class="toolbar-actions"><button @click="showSearch = true"><MagnifyingGlass :size="16" />搜索</button><span :class="['index-badge', project.status.toLowerCase()]"><i></i>{{ project.status === 'READY' ? '索引完成' : project.statusMessage }}</span></div>
     </header>
 
-    <div v-if="project.status !== 'READY'" class="indexing-screen">
-      <div class="scanner"><Cube :size="28" /></div><p class="eyebrow">REPOSITORY PIPELINE</p>
-      <h1>{{ project.statusMessage }}</h1><p>CodeAtlas 正在安全地克隆并建立只读代码索引，页面会自动刷新。</p>
-      <button v-if="project.status === 'FAILED'" @click="reindexProject"><ArrowsClockwise :size="15" />重新尝试</button>
-    </div>
+    <IndexingPipeline v-if="project.status !== 'READY'" :project="project" :progress="progress" @retry="reindexProject" @back="router.push('/')" />
 
-    <div v-else class="atlas-layout">
-      <aside class="atlas-explorer">
+    <div v-else :class="['atlas-layout', { 'overview-layout': activeMode === '概览' }]">
+      <aside v-if="activeMode !== '概览'" class="atlas-explorer">
         <div class="rail-heading"><span>仓库文件</span><b>{{ filteredFiles.length }}</b></div>
         <button class="branch-button" @click="showProjectMenu = !showProjectMenu"><GitBranch :size="14" />{{ project.branch || "默认分支" }}<CaretDown :size="12" /></button>
         <label class="explorer-search"><MagnifyingGlass :size="13" /><input v-model="fileFilter" placeholder="按文件路径筛选" /></label>
@@ -349,8 +397,10 @@ onBeforeUnmount(() => timer && window.clearInterval(timer));
         <footer><i></i><span>真实索引</span><small>{{ project.fileCount }} files</small></footer>
       </aside>
 
-      <main class="atlas-center">
-        <div v-if="activeMode === '代码星图' || activeMode === '依赖关系'" ref="graphElement" class="graph-stage">
+      <main :class="['atlas-center', { overview: activeMode === '概览' }]">
+        <ProjectOverview v-if="activeMode === '概览'" :project="project" :insights="insights" :graph="graph" @explain="startProjectExplanation" @risks="ask('找出这个项目最值得关注的变更风险和测试边界。')" @explore="exploreGraph" @change="openChangeAdvisor" @open-file="openOverviewFile" />
+
+        <div v-else-if="activeMode === '代码星图' || activeMode === '依赖关系'" ref="graphElement" class="graph-stage">
           <div class="graph-stats">
             <span><b>{{ visibleGraph?.nodes.length || 0 }}</b>节点</span><span><b>{{ visibleGraph?.edges.length || 0 }}</b>连接</span><span><b>{{ insights?.topDirectories.length || 0 }}</b>目录</span>
           </div>
@@ -377,14 +427,14 @@ onBeforeUnmount(() => timer && window.clearInterval(timer));
         </section>
 
         <section v-else class="change-stage">
-          <header><div><p class="eyebrow">CHANGE IMPACT</p><h2>{{ activeFile?.path.split('/').at(-1) || '选择一个文件' }}</h2><span>{{ activeFile?.path }}</span></div><div :class="['risk-orb', impact?.risk.toLowerCase()]"><b>{{ impact?.score || 0 }}</b><small>{{ impact?.risk || 'LOW' }} RISK</small></div></header>
+          <header><div><p class="eyebrow">CHANGE IMPACT</p><h2>{{ activeFile?.path.split('/').at(-1) || '选择一个文件' }}</h2><span>{{ activeFile?.path }}</span><button class="change-analysis-cta" @click="generateChangeAdvice"><BracketsCurly :size="14" />描述修改并生成完整建议</button></div><div :class="['risk-orb', impact?.risk.toLowerCase()]"><b>{{ impact?.score || 0 }}</b><small>{{ impact?.risk || 'LOW' }} RISK</small></div></header>
           <div class="change-columns">
             <article><h3>被哪些文件依赖 <span>{{ impact?.dependents.length || 0 }}</span></h3><button v-for="item in impact?.dependents" :key="item.path" @click="openFile(item.path)"><b>D{{ item.depth }}</b><span>{{ item.path }}</span></button><p v-if="!impact?.dependents.length">没有发现上游依赖</p></article>
             <article><h3>依赖哪些文件 <span>{{ impact?.dependencies.length || 0 }}</span></h3><button v-for="item in impact?.dependencies" :key="item.path" @click="openFile(item.path)"><b>D{{ item.depth }}</b><span>{{ item.path }}</span></button><p v-if="!impact?.dependencies.length">没有发现内部依赖</p></article>
           </div>
         </section>
 
-        <section class="atlas-code">
+        <section v-if="activeMode !== '概览'" class="atlas-code">
           <header><div><Code :size="14" /><strong>{{ activeFile?.path || 'CODE VIEWER' }}</strong></div><span>{{ activeFile?.lineCount || 0 }} 行 · {{ activeFile?.language || '—' }} · {{ formatBytes(activeFile?.byteSize || 0) }}</span></header>
           <div v-if="activeFile" class="code-scroll"><div v-for="(line, index) in codeLines" :key="index" class="atlas-code-line"><span>{{ index + 1 }}</span><code>{{ line || " " }}</code></div></div>
           <div v-else class="code-empty">从左侧文件树或关系图选择文件</div>
@@ -401,8 +451,8 @@ onBeforeUnmount(() => timer && window.clearInterval(timer));
         <form class="agent-question" @submit.prevent="ask()"><textarea v-model="question" rows="2" maxlength="8000" placeholder="询问架构、调用链或变更影响…"></textarea><button :disabled="asking || !question.trim()"><PaperPlaneTilt :size="15" weight="fill" /></button></form>
         <div ref="chatElement" class="agent-stream">
           <div v-if="!messages.length" class="agent-empty"><Sparkle :size="24" /><strong>基于真实代码开始分析</strong><button @click="ask('概览这个项目的架构、入口和关键模块，并给出文件证据。')">生成项目概览</button><button @click="ask('找出这个项目最值得关注的变更风险和测试边界。')">扫描变更风险</button></div>
-          <article v-for="message in messages" :key="message.id" :class="['atlas-message', message.role]"><small>{{ message.role === 'user' ? 'YOU' : '分析结论' }}</small><p>{{ message.content }}</p></article>
-          <article v-if="asking" class="atlas-message thinking"><small>ANALYZING</small><p>正在检索符号、读取文件并追踪调用关系…</p></article>
+          <article v-for="message in messages" :key="message.id" :class="['atlas-message', message.role]"><small>{{ message.role === 'user' ? 'YOU' : '分析结论' }}</small><MarkdownContent :content="message.content" /></article>
+          <article v-if="asking" class="atlas-message thinking"><small>ANALYZING</small><p>{{ analysisSteps[analysisPhase] }}</p><ol><li v-for="(step, index) in analysisSteps" :key="step" :class="{ done: index < analysisPhase, active: index === analysisPhase }"><i></i>{{ step }}</li></ol></article>
           <section v-if="impact" class="impact-path"><div class="agent-section-title"><span>当前文件影响</span><small>{{ impact.risk }} · {{ impact.score }}</small></div><ol><li v-for="item in impact.dependents.slice(0, 6)" :key="item.path"><b>{{ item.depth }}</b><span>{{ item.path }}</span><em>上游</em></li></ol></section>
           <section v-if="evidence.length" class="evidence-list"><div class="agent-section-title"><span>回答证据</span><small>{{ evidence.length }} 处</small></div><button v-for="(path, index) in evidence" :key="path" @click="openFile(path)"><b>{{ index + 1 }}</b><span>{{ path.split('/').at(-1) }}<small>{{ path }}</small></span><ArrowRight :size="13" /></button></section>
           <section v-if="impactGroups.length" class="impact-summary"><div class="agent-section-title"><span>影响目录</span><small>依赖文件数</small></div><div v-for="[name, count] in impactGroups" :key="name"><span>{{ name }}</span><b></b><b></b><em>{{ count }}</em></div></section>
@@ -414,6 +464,7 @@ onBeforeUnmount(() => timer && window.clearInterval(timer));
     <div v-if="showSearch" class="search-overlay" @click.self="showSearch = false">
       <section><header><MagnifyingGlass :size="17" /><input v-model="globalQuery" autofocus placeholder="搜索文件路径或代码内容" @keyup.enter="runSearch" /><button @click="showSearch = false"><X :size="16" /></button></header><div class="search-hint"><span>ENTER 搜索</span><span>{{ searching ? '正在检索…' : `${searchResults.length} 个结果` }}</span></div><button v-for="file in searchResults" :key="file.id" @click="openFile(file.path)"><FileCode :size="15" /><span><strong>{{ file.path }}</strong><small>{{ file.language }} · {{ file.lineCount }} 行</small></span><ArrowRight :size="14" /></button><p v-if="globalQuery && !searching && !searchResults.length">没有找到匹配的路径或代码</p></section>
     </div>
+    <ChangeAdvisor v-if="showChangeAdvisor && activeFile" :file="activeFile" @close="showChangeAdvisor = false" @generate="runChangeAnalysis" />
     <button v-if="error" class="toast" @click="error = ''">{{ error }}</button>
   </section>
 </template>

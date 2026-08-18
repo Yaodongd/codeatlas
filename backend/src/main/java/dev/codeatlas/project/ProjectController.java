@@ -30,6 +30,11 @@ public class ProjectController {
         return service.get(id);
     }
 
+    @GetMapping("/{id}/progress")
+    public RepositoryIndexer.ProjectProgress progress(@PathVariable UUID id) {
+        return service.progress(id);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ProjectRecord create(@Valid @RequestBody CreateProjectRequest request) {

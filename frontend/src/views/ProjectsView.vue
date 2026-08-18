@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   PhArrowRight, PhCheckCircle, PhClockCountdown, PhCode, PhDatabase,
-  PhGitBranch, PhGithubLogo, PhMagnifyingGlass, PhPlus, PhSparkle, PhWarningCircle
+  PhGitBranch, PhGithubLogo, PhMagnifyingGlass, PhPlus, PhShieldCheck, PhSparkle, PhWarningCircle
 } from "@phosphor-icons/vue";
 import ProjectOrbit from "../components/ProjectOrbit.vue";
 import { useProjectsStore } from "../stores/projects";
@@ -15,7 +15,14 @@ const submitting = ref(false);
 const formError = ref("");
 const search = ref("");
 const form = reactive({ name: "", repositoryUrl: "", branch: "" });
+const lastSuggestedName = ref("");
 let timer: number | undefined;
+
+const examples = [
+  { name: "Spring PetClinic", repositoryUrl: "https://github.com/spring-projects/spring-petclinic.git", branch: "main" },
+  { name: "Pinia", repositoryUrl: "https://github.com/vuejs/pinia.git", branch: "v3" },
+  { name: "CodeAtlas", repositoryUrl: "https://github.com/Yaodongd/codeatlas.git", branch: "master" }
+];
 
 const readyCount = computed(() => store.projects.filter(project => project.status === "READY").length);
 const indexedFiles = computed(() => store.projects.reduce((sum, project) => sum + project.fileCount, 0));
@@ -23,11 +30,28 @@ const filteredProjects = computed(() => {
   const value = search.value.trim().toLowerCase();
   return store.projects.filter(project => !value || `${project.name} ${project.repositoryUrl}`.toLowerCase().includes(value));
 });
+const repositoryState = computed(() => {
+  if (!form.repositoryUrl.trim()) return { valid: false, message: "粘贴公开 HTTPS Git 地址" };
+  try {
+    const url = new URL(form.repositoryUrl.trim());
+    if (url.protocol !== "https:") return { valid: false, message: "仅支持 HTTPS 地址" };
+    if (!url.pathname.split("/").filter(Boolean).length || url.pathname.split("/").filter(Boolean).length < 2) {
+      return { valid: false, message: "地址需要包含 owner/repository" };
+    }
+    return { valid: true, message: `${url.hostname} · 地址格式有效` };
+  } catch {
+    return { valid: false, message: "仓库地址格式不正确" };
+  }
+});
 const statusLabel: Record<ProjectStatus, string> = {
   PENDING: "等待中", CLONING: "克隆中", INDEXING: "索引中", READY: "可分析", FAILED: "失败"
 };
 
 async function submit() {
+  if (!repositoryState.value.valid) {
+    formError.value = repositoryState.value.message;
+    return;
+  }
   submitting.value = true;
   formError.value = "";
   try {
@@ -43,6 +67,12 @@ async function submit() {
   }
 }
 
+function useExample(example: typeof examples[number]) {
+  Object.assign(form, example);
+  lastSuggestedName.value = example.name;
+  formError.value = "";
+}
+
 function openProject(id: string) {
   void router.push(`/projects/${id}`);
 }
@@ -52,6 +82,19 @@ onMounted(async () => {
   timer = window.setInterval(() => void store.load(), 4000);
 });
 onBeforeUnmount(() => timer && window.clearInterval(timer));
+
+watch(() => form.repositoryUrl, value => {
+  try {
+    const path = new URL(value).pathname.split("/").filter(Boolean);
+    const suggestion = path.at(-1)?.replace(/\.git$/i, "") || "";
+    if (suggestion && (!form.name || form.name === lastSuggestedName.value)) {
+      form.name = suggestion;
+      lastSuggestedName.value = suggestion;
+    }
+  } catch {
+    // Keep the user's manually entered project name while the URL is incomplete.
+  }
+});
 </script>
 
 <template>
@@ -90,7 +133,7 @@ onBeforeUnmount(() => timer && window.clearInterval(timer));
         <div v-if="filteredProjects.length" class="repository-table">
           <button v-for="project in filteredProjects" :key="project.id" @click="openProject(project.id)">
             <span class="repo-type"><PhGithubLogo :size="18" /></span>
-            <span class="repo-main"><strong>{{ project.name }}</strong><small>{{ project.repositoryUrl }}</small></span>
+            <span class="repo-main"><strong>{{ project.name }}</strong><small>{{ project.status === 'READY' ? project.repositoryUrl : project.statusMessage }}</small></span>
             <span class="repo-branch"><PhGitBranch :size="13" />{{ project.branch || "默认分支" }}</span>
             <span class="repo-files">{{ project.fileCount.toLocaleString() }} files</span>
             <span :class="['repo-status', project.status.toLowerCase()]">
@@ -107,13 +150,14 @@ onBeforeUnmount(() => timer && window.clearInterval(timer));
       <form class="import-console" @submit.prevent="submit">
         <header><span>NEW REPOSITORY</span><PhPlus :size="17" /></header>
         <h2>建立代码地图</h2>
-        <p>仓库会由服务器克隆并建立只读索引，不会执行其中的代码。</p>
+        <p>粘贴公开仓库地址即可。分支可以留空，CodeAtlas 不会执行仓库里的代码。</p>
+        <div class="example-repositories"><span>快速体验</span><button v-for="example in examples" :key="example.repositoryUrl" type="button" @click="useExample(example)">{{ example.name }}</button></div>
         <label>项目名称<input v-model="form.name" required maxlength="120" placeholder="例如：CodeAtlas" /></label>
-        <label>HTTPS 仓库地址<input v-model="form.repositoryUrl" required type="url" placeholder="https://github.com/owner/repo" /></label>
-        <label>目标分支（可选）<input v-model="form.branch" maxlength="120" placeholder="留空使用默认分支" /></label>
+        <label>HTTPS 仓库地址<input v-model="form.repositoryUrl" required type="url" placeholder="https://github.com/owner/repo" /><small :class="{ valid: repositoryState.valid }"><PhShieldCheck :size="12" />{{ repositoryState.message }}</small></label>
+        <details class="branch-options"><summary><PhGitBranch :size="13" />高级选项：指定分支</summary><label>目标分支<input v-model="form.branch" maxlength="120" placeholder="留空自动使用默认分支" /></label></details>
         <p v-if="formError" class="form-error">{{ formError }}</p>
-        <button class="command-submit" :disabled="submitting"><PhPlus :size="15" />{{ submitting ? "正在建立索引…" : "导入真实仓库" }}</button>
-        <small>支持 GitHub、GitLab、Gitee、Codeberg 的公开仓库</small>
+        <button class="command-submit" :disabled="submitting || !repositoryState.valid"><PhPlus :size="15" />{{ submitting ? "正在创建索引任务…" : "导入并开始分析" }}</button>
+        <small>GitHub 直连失败时会自动切换 GitHub 官方源码归档；同时支持 GitLab、Gitee、Codeberg 公共仓库。</small>
       </form>
     </div>
   </section>

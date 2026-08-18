@@ -9,7 +9,8 @@ public record CodeAtlasProperties(
         Path repositoryStorage,
         int maxRepositoryFiles,
         long maxFileBytes,
+        int repositoryConnectTimeoutSeconds,
+        long maxRepositoryArchiveBytes,
         String aiApiKey
 ) {
 }
-

@@ -40,9 +40,10 @@ codeatlas:
   repository-storage: ${REPOSITORY_STORAGE:./data/repositories}
   max-repository-files: ${MAX_REPOSITORY_FILES:3000}
   max-file-bytes: ${MAX_FILE_BYTES:524288}
+  repository-connect-timeout-seconds: ${REPOSITORY_CONNECT_TIMEOUT_SECONDS:20}
+  max-repository-archive-bytes: ${MAX_REPOSITORY_ARCHIVE_BYTES:262144000}
   ai-api-key: ${AI_API_KEY:}
 
 logging:
   pattern:
     console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} - %msg%n"
-

@@ -13,6 +13,12 @@ export interface Project {
   updatedAt: string;
 }
 
+export interface ProjectProgress {
+  stage: "PENDING" | "CONNECTING" | "DOWNLOADING" | "ARCHIVE_FALLBACK" | "EXTRACTING" | "SCANNING" | "ANALYZING" | "READY" | "FAILED" | string;
+  percent: number;
+  message: string | null;
+}
+
 export interface SourceFile {
   id: string;
   projectId: string;

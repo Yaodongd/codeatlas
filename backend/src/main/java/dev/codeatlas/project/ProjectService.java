@@ -38,6 +38,10 @@ public class ProjectService {
         return projects.findAll();
     }
 
+    public RepositoryIndexer.ProjectProgress progress(UUID projectId) {
+        return indexer.progress(get(projectId));
+    }
+
     public ProjectRecord get(UUID id) {
         return projects.findById(id).orElseThrow(() -> new ProjectNotFoundException(id));
     }
