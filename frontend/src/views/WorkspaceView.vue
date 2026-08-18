@@ -104,6 +104,13 @@ function notify(reason: unknown, fallback: string) {
   error.value = reason instanceof Error ? reason.message : fallback;
 }
 
+function createClientId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 async function loadProject() {
   project.value = await api.getProject(projectId);
   if (project.value.status === "READY" && !initialized) await initializeWorkspace();
@@ -201,7 +208,7 @@ async function ask(contentOverride?: string) {
   if (!content || !session.value || asking.value) return;
   question.value = "";
   asking.value = true;
-  messages.value.push({ id: crypto.randomUUID(), sessionId: session.value.id, role: "user", content, citations: [], createdAt: new Date().toISOString() });
+  messages.value.push({ id: createClientId(), sessionId: session.value.id, role: "user", content, citations: [], createdAt: new Date().toISOString() });
   await nextTick();
   chatElement.value?.scrollTo({ top: chatElement.value.scrollHeight, behavior: "smooth" });
   try {
